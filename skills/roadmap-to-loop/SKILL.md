@@ -136,7 +136,11 @@ alone:
    【verifier】 criteria (give it the artifacts and references, brief it to find faults).
 3. All pass → check the box, append a log entry, commit locally (don't push).
 4. On hitting a 【human】 criterion → stop, state plainly what the owner must do or
-   look at, and wait.
+   look at, and wait. When the owner reacts, run their judgment through the
+   **taste-to-rubric** skill: append any standing preference to the project's `RUBRIC.md`,
+   and where it can be phrased checkably, promote it to a 【verifier】 criterion next round so
+   this stop stops needing them. (This is how taste keeps getting captured in the back half of
+   the pipeline, not just at idea time.)
 5. Any criterion failing 3 rounds in a row → stop and ask. Never bypass, weaken, or
    reinterpret a criterion to get unstuck.
 

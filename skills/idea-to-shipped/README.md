@@ -1,14 +1,12 @@
-# idea-to-shipped
+# Idea to Shipped — a taste-driven build pipeline
 
-A taste-driven build pipeline for Claude Code — a package of six skills that take a half-formed
-idea all the way to a self-running build, **without asking you to write a spec**, and without
-losing the parts of "what you want" that you can only recognize once you see them.
+A package of five skills that take a half-formed idea all the way to a self-running build — without
+asking you to write a spec, and without losing the parts of "what you want" that you can only
+recognize once you see them.
 
-It's built on one fact about how people actually work: **your taste shows up when you react to
+It's built on one fact about how you actually work: **your taste shows up when you react to
 something concrete, not when you're asked to describe it in advance.** So the pipeline never makes
 you specify everything up front. It makes you *react*, and it writes down what your reactions reveal.
-
-> Formerly `roadmap-to-loop` — that skill is now just one stage of the larger pipeline.
 
 ## The pipeline
 
@@ -29,19 +27,14 @@ you specify everything up front. It makes you *react*, and it writes down what y
  taste-to-rubric          → runs underneath all of it. Every time you react to something — the first
                             mock-up, a mid-build check, final sign-off — it captures the preference
                             into RUBRIC.md so nobody has to ask you twice.
-
- idea-to-shipped          → the front door: it routes you to the right stage by what you already
-                            have, and protects the principles the pipeline is built on.
 ```
 
 ## RUBRIC.md — your taste, written down
 
 Each project grows one file, `RUBRIC.md`. Every "no, not that" that turns out to be a *standing*
-preference (not a one-off tweak) gets distilled into one checkable line, tagged `revealed` (you only
-knew it on sight) or `known`. Over a project it becomes the rulebook the agent checks itself
-against; rules graduate from "only the owner can judge" to "a verifier subagent can judge" over time.
-Over many projects, those rulebooks can be compared to distill the constants of your taste — but
-that's later, once a few exist.
+preference (not a one-off tweak) gets distilled into one checkable line. Over a project it becomes
+the rulebook the agent checks itself against. Over many projects, those rulebooks can be compared to
+distill the constants of your taste — but that's later, once a few exist.
 
 ## How to use it
 
@@ -52,34 +45,21 @@ at the mock-up; if you already have a firm concept or a plan, it jumps in furthe
 Your job, start to end, is small and only yours: **react** (at the first mock-up) and **judge** (at
 the gates the agent stops you for). Everything in between is the machine's.
 
-## Install
+## What's intentionally not built yet
 
-These are [Claude Code](https://claude.com/claude-code) skills. Copy the ones you want into your
-personal skills directory:
+- The cross-project master rubric (needs several projects' RUBRIC.md to compare).
+- Auto-loading rules back in / scoring — its shape will reveal itself once real rules pile up.
 
-```bash
-git clone https://github.com/H1an1/idea-to-shipped.git
-cp -R idea-to-shipped/skills/* ~/.claude/skills/
-```
+These come with mileage, not design. Run the pipeline on real things first; the next pieces will
+show you their shape.
 
-Each skill is a self-contained `skills/<name>/SKILL.md`; its description controls when Claude reaches
-for it. You can also drop them into a project's `.claude/skills/` instead, to scope them to one repo.
-
-## The skills
+## The skills in this package
 
 | Skill | What it does |
 |---|---|
 | **idea-to-shipped** | the front door — routes you to the right stage |
 | **idea-to-prototype** | vague idea → cheapest rough prototype that provokes your taste |
 | **prototype-to-roadmap** | firm concept → sliced, ordered roadmap with your rules loaded in |
-| **roadmap-to-loop** | roadmap → LOOP.md with acceptance criteria tagged machine / verifier / you |
+| **roadmap-to-loop** | roadmap → LOOP.md with criteria tagged machine / verifier / you |
 | **loop-to-goal** | LOOP.md → unattended build that writes its own goals and verifies itself |
 | **taste-to-rubric** | any reaction, anywhere → a written rule in RUBRIC.md |
-
-## What's intentionally not built yet
-
-- The cross-project master rubric (needs several projects' `RUBRIC.md` to compare).
-- Auto-loading rules back in / scoring — its shape will reveal itself once real rules pile up.
-
-These come with mileage, not design. Run the pipeline on real things first; the next pieces will
-show you their shape.
