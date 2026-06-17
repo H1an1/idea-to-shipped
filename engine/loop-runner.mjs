@@ -167,7 +167,21 @@ Return allConfirmed=true ONLY if every one genuinely holds, plus findings.`,
       `${build && build.stuck ? ' — stuck, needs you' : ''}` +
       `${verdict && !verdict.allConfirmed ? ' — verifier refuted' : ''}`)
 
-  if (!ok) {
+  if (ok) {
+    // Persist progress INTO the LOOP.md so a disconnect/crash is recoverable: on restart the engine
+    // re-parses, sees the ticked criteria, and skips them. (The build agent already committed the
+    // code; this records it in the ledger too — code first, ledger second, so a crash in between
+    // just makes the item re-run and find itself already done.)
+    await agent(
+      `In the LOOP.md at ${loopPath}, find the item titled "${item.title}". Change the criteria that ` +
+      `passed this round from "- [ ]" to "- [x]", but LEAVE any 【本人/human】 criterion unchecked ` +
+      `(it still needs the owner). Then append one line under the Log section in the form ` +
+      `"<TODAY> / ${item.title} / done / <one line on what was done>", where <TODAY> is the output of ` +
+      `running \`date +%F\`. Commit ONLY the LOOP.md change locally (message "loop: ${item.title} done"); ` +
+      `never push; touch nothing else.`,
+      { label: `record:${item.title.slice(0, 22)}`, phase: 'Execute' },
+    )
+  } else {
     log(`Halting: "${item.title}" did not pass cleanly. Per protocol the loop stops rather than push forward on a shaky item — over to you.`)
     break
   }
