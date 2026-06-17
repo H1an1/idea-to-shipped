@@ -1,6 +1,6 @@
 // loop-runner — the general execution engine behind loop-to-goal.
 //
-// One engine, any project. It reads a LOOP.md (per ../LOOP-CONTRACT.md) and runs each
+// One engine, any project. It reads a LOOP.md (the standard format roadmap-to-loop writes) and runs each
 // still-unfinished item in its OWN FRESH AGENT (fresh context per item — the entire reason this
 // exists), sequentially, in the project repo. Each item is built to pass its own criteria, then
 // independently verified, committed locally, and logged. It stops at human gates and never fakes
