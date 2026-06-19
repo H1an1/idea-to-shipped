@@ -115,6 +115,109 @@ const VERDICT = {
 
 const gatesText = parsed.gates.length ? parsed.gates.join('\n- ') : '(none)'
 const boundsText = parsed.boundaries.length ? parsed.boundaries.join('\n- ') : '(none)'
+
+// ===== PARALLEL MODE — opt-in via args.parallel. Informed-v0: the guardrails below come from
+// real failure data (Drawell's log: parallel worktrees collided on a shared OUTPUT dir and on
+// shared SOURCE files), but this path has never run through the engine yet. The default below
+// stays the validated sequential engine, untouched. =====
+if (args.parallel) {
+  phase('Plan')
+  const WAVES = {
+    type: 'object', required: ['waves'],
+    properties: {
+      waves: { type: 'array', items: { type: 'array', items: { type: 'integer' } } },
+      notes: { type: 'string' },
+    },
+  }
+  const planList = pending.map((it, i) =>
+    `[${i}] ${it.title} :: ${it.criteria.filter(c => !c.done).map(c => c.text).join('  |  ')}`).join('\n')
+  const plan = await agent(
+    `Group these work items into ordered PARALLEL WAVES. Two items may share a wave ONLY if BOTH: ` +
+    `(a) FILE-DISJOINT — predict the files each touches; they must not overlap; (b) INDEPENDENT — neither needs the other's output. ` +
+    `Be CONSERVATIVE: if unsure, separate waves. Anything that edits SHARED files (registries, app shell, shared config, a test harness, shared docs) goes ALONE. ` +
+    `Earlier waves are prerequisites for later ones.\nItems:\n${planList}\n` +
+    `Return "waves": an ordered array of arrays of item indices; every index 0..${pending.length - 1} appears exactly once; a length-1 array runs alone.`,
+    { label: 'plan-waves', phase: 'Plan', schema: WAVES },
+  )
+  const waves = (plan && Array.isArray(plan.waves) && plan.waves.length) ? plan.waves : pending.map((_, i) => [i])
+  log(`Plan: ${pending.length} item(s) → ${waves.length} wave(s) (${waves.filter(w => w.length > 1).length} parallel).`)
+
+  phase('Execute')
+  const PBUILD = {
+    type: 'object', required: ['ok', 'needsShared', 'branch', 'summary'],
+    properties: {
+      ok: { type: 'boolean' }, needsShared: { type: 'boolean' }, branch: { type: 'string' },
+      filesTouched: { type: 'array', items: { type: 'string' } }, summary: { type: 'string' },
+    },
+  }
+  const MERGE = {
+    type: 'object', required: ['merged', 'needsSequential', 'verifierConfirmed', 'gatesPass'],
+    properties: {
+      merged: { type: 'array', items: { type: 'string' } },
+      needsSequential: { type: 'array', items: { type: 'string' } },
+      verifierConfirmed: { type: 'array', items: { type: 'string' } },
+      gatesPass: { type: 'boolean' }, notes: { type: 'string' },
+    },
+  }
+  const done = []
+  let halted = false
+  for (let w = 0; w < waves.length && !halted; w++) {
+    const wave = waves[w].map(i => pending[i]).filter(Boolean)
+    if (!wave.length) continue
+    log(`Wave ${w + 1}/${waves.length}: ${wave.length} item(s)${wave.length > 1 ? ' in parallel worktrees' : ''}.`)
+
+    const builds = await parallel(wave.map((item, k) => () => agent(
+      `Build ONE item in ISOLATION. Project: ${projectDir}. You run CONCURRENTLY with sibling agents — obey strictly:
+1. git -C "${projectDir}" worktree add "${projectDir}/.loopwt/w${w}_${k}" -b loop/w${w}/${k} HEAD ; do ALL work inside that worktree and commit there.
+2. Edit ONLY files unique to THIS item. Do NOT touch shared files (registries, app shell, shared config, the test harness, shared docs). If passing your criteria REQUIRES editing a shared file, STOP: set needsShared=true, explain, commit nothing — this item is not safely parallel.
+3. Send any test/build OUTPUT or scratch to a path unique to you (include "w${w}_${k}" or your PID) — NEVER a shared/timestamped dir a sibling could overwrite.
+4. Respect RUBRIC.md if present. Confirm machine criteria with the project's REAL checks, run INSIDE your worktree. Try ~3x honestly; never fake or weaken a criterion.
+
+ITEM: ${item.title}
+Pass these: ${item.criteria.filter(c => !c.done && (c.tiers.includes('machine') || c.tiers.includes('verifier'))).map(c => c.text).join('  ||  ') || '(none)'}
+NEVER do: ${boundsText}
+Return ok, needsShared, branch (loop/w${w}/${k}), filesTouched, summary.`,
+      { label: `build:w${w}.${k}:${item.title.slice(0, 16)}`, phase: 'Execute', schema: PBUILD },
+    )))
+
+    const okBranches = wave.map((item, k) => ({ title: item.title, branch: `loop/w${w}/${k}`, ok: !!builds[k] && builds[k].ok && !builds[k].needsShared }))
+    const vcrit = wave.flatMap(it => it.criteria.filter(c => !c.done && c.tiers.includes('verifier')).map(c => `(${it.title}) ${c.text}`))
+    const merge = await agent(
+      `You are the serialized INTEGRATOR for ${projectDir}. You did NOT build any of this, so you are also the independent verifier. Work strictly IN ORDER, never concurrently:
+A. Confirm you are on the base branch: git -C "${projectDir}" branch --show-current.
+B. For each OK branch below, in order: git -C "${projectDir}" merge --no-ff <branch>. On CONFLICT → git -C "${projectDir}" merge --abort, add that item to needsSequential, move on (NEVER force). If a branch changed a shared file it shouldn't have, note it.
+   OK branches: ${okBranches.filter(b => b.ok).map(b => `${b.branch} ("${b.title}")`).join(' ; ') || '(none)'}
+C. Run the project's full checks / global gates on the merged tree → gatesPass. Gates: ${gatesText || '(none)'}.
+D. As the independent verifier, try to REFUTE each 【verifier】 criterion below against the merged result; put in verifierConfirmed only the item titles whose verifier-criteria genuinely all hold:
+   ${vcrit.join('\n   ') || '(none)'}
+E. Clean up: git -C "${projectDir}" worktree remove --force each "${projectDir}/.loopwt/w${w}_*", and delete the merged loop/w${w}/* branches.
+Return merged (titles merged clean), needsSequential (titles), verifierConfirmed (titles), gatesPass, notes.`,
+      { label: `integrate:w${w}`, phase: 'Execute', schema: MERGE },
+    )
+
+    const merged = (merge && merge.merged) || []
+    const vok = (merge && merge.verifierConfirmed) || []
+    for (let k = 0; k < wave.length; k++) {
+      const item = wave[k], b = builds[k]
+      const hasV = item.criteria.some(c => !c.done && c.tiers.includes('verifier'))
+      const ok = !!b && b.ok && !b.needsShared && merged.includes(item.title) && !!(merge && merge.gatesPass) && (!hasV || vok.includes(item.title))
+      done.push({ item: item.title, ok, build: b })
+      log(`${ok ? '✓' : '✗'} ${item.title}` +
+          (b && b.needsShared ? ' (needs shared file → sequential)' : '') +
+          (merge && merge.needsSequential && merge.needsSequential.includes(item.title) ? ' (merge conflict → sequential)' : ''))
+    }
+    if (!(merge && merge.gatesPass)) { halted = true; log(`Halting: wave ${w + 1} gates failed after merge — over to you.`); break }
+    const recordTitles = wave.filter((it, k) => done[done.length - wave.length + k].ok).map(it => it.title)
+    if (recordTitles.length) await agent(
+      `In the LOOP.md at ${loopPath}, for these items tick their passed criteria "- [ ]" → "- [x]" (leave 【本人/human】 unchecked): ${recordTitles.join(' ; ')}. Append one Log line per item ("<run \`date +%F\`> / <item> / done (parallel wave ${w + 1})"). Commit ONLY the LOOP.md (message "loop: wave ${w + 1} done"); never push; touch nothing else.`,
+      { label: `record:w${w}`, phase: 'Execute' },
+    )
+    const fellBack = wave.filter((it, k) => (builds[k] && builds[k].needsShared) || (merge && merge.needsSequential && merge.needsSequential.includes(it.title)))
+    if (fellBack.length) log(`Fell back (re-run these in sequential mode): ${fellBack.map(i => i.title).join(' ; ')}`)
+  }
+  return { loop: loopPath, project: projectDir, mode: 'parallel', waves: waves.length, ran: done.length, passed: done.filter(d => d.ok).length, results: done }
+}
+
 const done = []
 
 for (let i = 0; i < queue.length; i++) {
