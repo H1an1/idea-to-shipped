@@ -90,6 +90,11 @@ if (queue.length < pending.length) log(`maxItems=${args.maxItems}: running only 
 // ---------- Phase 2 — run each item sequentially, each in its OWN fresh agent ----------
 phase('Execute')
 
+// dual-review knob: how many INDEPENDENT verifiers must ALL confirm a 【verifier】 criterion
+// (default 1; set args.verifiers:2 for the Han1_ai-style dual review). Sequential mode honors this;
+// parallel-mode dual-review lands with parallel mode's first real run.
+const verifiers = Math.max(1, Number(args.verifiers) || 1)
+
 const BUILD = {
   type: 'object',
   required: ['summary', 'criteria', 'humanGatesHit', 'stuck'],
@@ -251,17 +256,26 @@ Rules:
     { label: `build:${item.title.slice(0, 28)}`, phase: 'Execute', schema: BUILD },
   )
 
-  // independent verifier — a DIFFERENT fresh agent that did not build — only if there are verifier criteria
+  // independent verifier(s) — DIFFERENT fresh agents that did not build. With verifiers>1 this is
+  // dual-review (Han1_ai practice): N independent reviewers, each a distinct lens, ALL must confirm.
   const vcrit = open.filter(c => c.tiers.includes('verifier'))
   let verdict = null
   if (build && !build.stuck && vcrit.length) {
-    verdict = await agent(
-      `You are an INDEPENDENT verifier. You did NOT build this. Try to REFUTE that item "${item.title}" is done.
+    const lenses = [
+      'correctness — does it truly do what each criterion says',
+      'robustness — edge cases, failure paths, silently-swallowed errors',
+      'evidence — each claim backed by something runnable, not just asserted',
+    ]
+    const verdicts = await parallel(Array.from({ length: verifiers }, (_, vi) => () => agent(
+      `You are INDEPENDENT verifier ${vi + 1}/${verifiers}. You did NOT build this. Try to REFUTE that item "${item.title}" is done${verifiers > 1 ? ` — your lens: ${lenses[vi % lenses.length]}` : ''}.
 Inspect the real diff / artifacts in ${projectDir}. For each criterion, hunt for faults; default to NOT-passed if unsure:
 ${vcrit.map(c => `- ${c.text}`).join('\n')}
 Return allConfirmed=true ONLY if every one genuinely holds, plus findings.`,
-      { label: `verify:${item.title.slice(0, 28)}`, phase: 'Execute', schema: VERDICT },
-    )
+      { label: `verify${verifiers > 1 ? ` ${vi + 1}/${verifiers}` : ''}:${item.title.slice(0, 22)}`, phase: 'Execute', schema: VERDICT },
+    )))
+    const got = verdicts.filter(Boolean)
+    // conservative AND-gate: every reviewer must have run AND confirmed
+    verdict = { allConfirmed: got.length === verifiers && got.every(v => v.allConfirmed), findings: got.flatMap(v => v.findings || []) }
   }
 
   const ok = !!build && !build.stuck && build.criteria.every(c => c.passed) && (!verdict || verdict.allConfirmed)
